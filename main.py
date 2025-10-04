@@ -3,7 +3,9 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.reactive import reactive
 from textual.widgets import Button, Footer, Header, Label, Static
+from textual.worker import Worker, WorkerState
 
 from app.screens.data import TemplateDataScreen
 from app.screens.diff import DiffViewerScreen
@@ -27,35 +29,64 @@ class WelcomeScreen(Static):
         # Check if chezmoi is installed
         if ChezmoiWrapper.check_installed():
             version = ChezmoiWrapper.get_version()
-            yield Label(f"[green][/green] chezmoi detected: {version}")
+            yield Label(f"[green]✓[/green] chezmoi detected: {version}")
         else:
-            yield Label("[red][/red] chezmoi not found - please install it first")
+            yield Label("[red]✗[/red] chezmoi not found - please install it first")
             yield Label("  Visit: https://www.chezmoi.io/install/")
 
 
 class StatusPanel(Static):
     """Display chezmoi status information."""
 
+    file_count = reactive(0)
+    source_dir = reactive("")
+    error_message = reactive("")
+
     def compose(self) -> ComposeResult:
         """Create child widgets."""
-        yield Label("[bold]Quick Status[/bold]")
-        yield Label("")
+        yield Label("[bold]Quick Status[/bold]", id="status-title")
+        yield Label("", id="status-blank")
+        yield Label("[dim]Loading...[/dim]", id="status-files")
+        yield Label("", id="status-source")
 
-        if not ChezmoiWrapper.check_installed():
-            yield Label("[yellow]Install chezmoi to see status[/yellow]")
-            return
+    def on_mount(self) -> None:
+        """Load status when mounted."""
+        if ChezmoiWrapper.check_installed():
+            self.load_status()
+        else:
+            self.query_one("#status-files", Label).update(
+                "[yellow]Install chezmoi to see status[/yellow]"
+            )
 
+    def load_status(self) -> None:
+        """Load status in background worker."""
+        self.run_worker(self._fetch_status, exclusive=True, thread=True)
+
+    async def _fetch_status(self) -> tuple[int, str, str]:
+        """Fetch status from chezmoi."""
         try:
-            # Get managed files count
             managed = ChezmoiWrapper.get_managed_files()
-            yield Label(f"Managed files: [cyan]{len(managed)}[/cyan]")
-
-            # Get source directory
-            source_dir = ChezmoiWrapper.get_source_dir()
-            yield Label(f"Source directory: [dim]{source_dir}[/dim]")
-
+            source = ChezmoiWrapper.get_source_dir()
+            return (len(managed), str(source), "")
         except Exception as e:
-            yield Label(f"[red]Error: {e}[/red]")
+            return (0, "", str(e))
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        """Handle worker completion."""
+        if event.state == WorkerState.SUCCESS:
+            if hasattr(event.worker, "result") and event.worker.result:
+                count, source, error = event.worker.result
+                if error:
+                    self.query_one("#status-files", Label).update(
+                        f"[red]Error: {error}[/red]"
+                    )
+                else:
+                    self.query_one("#status-files", Label).update(
+                        f"Managed files: [cyan]{count}[/cyan]"
+                    )
+                    self.query_one("#status-source", Label).update(
+                        f"Source directory: [dim]{source}[/dim]"
+                    )
 
 
 class ChezmoiManager(App):
@@ -91,10 +122,12 @@ class ChezmoiManager(App):
         height: auto;
         align: center middle;
         padding: 1;
+        layout: horizontal;
     }
 
     Button {
         margin: 0 1;
+        min-width: 14;
     }
     """
 
@@ -156,7 +189,7 @@ class ChezmoiManager(App):
 
     def action_toggle_dark(self) -> None:
         """Toggle dark mode."""
-        self.dark = not self.dark
+        self.theme = "textual-dark" if self.theme == "textual-light" else "textual-light"
 
     def action_show_status(self) -> None:
         """Show the status screen."""

@@ -36,7 +36,7 @@ class StatusDisplay(Static):
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Handle worker completion."""
         if event.state == WorkerState.SUCCESS:
-            if hasattr(event.worker, "result") and event.worker.result:
+            if hasattr(event.worker, "result") and event.worker.result is not None:
                 self.update_status(event.worker.result)
 
     def update_status(self, status: str) -> None:

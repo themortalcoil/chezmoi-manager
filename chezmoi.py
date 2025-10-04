@@ -118,12 +118,14 @@ class ChezmoiWrapper:
         Returns:
             list[str]: List of managed file paths.
         """
-        result = cls.run_command(["managed", "--format", "json"])
+        result = cls.run_command(["managed"])
         if result.returncode == 0 and result.stdout.strip():
-            try:
-                return json.loads(result.stdout)
-            except json.JSONDecodeError:
-                return []
+            # Parse line-by-line output
+            return [
+                line.strip()
+                for line in result.stdout.strip().split("\n")
+                if line.strip()
+            ]
         return []
 
     @classmethod
