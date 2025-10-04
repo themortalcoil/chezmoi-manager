@@ -49,7 +49,27 @@ uv run python main.py
 - **[chezmoi.py](chezmoi.py)**: Wrapper/interface for chezmoi command-line operations
 - **[project.sh](project.sh)**: Project setup and build automation script
 
+### Application Structure
+```
+app/
+├── screens/
+│   ├── status.py       # Status screen showing chezmoi status
+│   ├── files.py        # File browser with DirectoryTree
+│   └── diff.py         # Diff viewer with syntax highlighting
+├── widgets/            # Custom widgets (future)
+└── styles/
+    └── base.tcss       # Base CSS styling
+```
+
 ### Design Notes
-- The application will provide an interactive terminal interface for chezmoi operations
-- [chezmoi.py](chezmoi.py) should handle all interactions with the chezmoi CLI
+- The application provides an interactive terminal interface for chezmoi operations
+- [chezmoi.py](chezmoi.py) handles all interactions with the chezmoi CLI via subprocess
+- Workers are used for background tasks to prevent UI blocking
 - The project requires bash and chezmoi to be available on the system
+
+### Key Features Implemented
+1. **Dashboard**: Welcome screen with quick status
+2. **Status View**: Detailed chezmoi status (press 's')
+3. **File Browser**: DirectoryTree for source directory (press 'f')
+4. **Diff Viewer**: Syntax-highlighted diff view (press 'v')
+5. **Dark Mode Toggle**: Press 'd' to toggle themes

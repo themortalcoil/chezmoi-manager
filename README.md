@@ -1,176 +1,199 @@
-This is a comprehensive project plan and architecture for creating a TUI wrapper for `chezmoi`, utilizing Python and Textualize for the interface, and managed via a robust shell script.
+# Chezmoi Manager
 
-### Project Overview
+A modern Terminal User Interface (TUI) application for managing [chezmoi](https://www.chezmoi.io/) dotfiles with ease.
 
-**Working Title:** `LazyMoi`
-**Goal:** To provide an intuitive, dashboard-like TUI (similar to `lazygit` or `lazydocker`) for visualizing `chezmoi` status, reviewing diffs, applying changes, editing source files, and managing the source Git repository.
+![Chezmoi Manager](https://img.shields.io/badge/version-0.1.0-blue)
+![Python](https://img.shields.io/badge/python-3.13+-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-### Architecture
+## Features
 
-The architecture is designed around responsiveness and separation of concerns. The UI must remain responsive while potentially long-running `chezmoi` commands execute in the background.
+✨ **Core Functionality:**
+- 📊 **Status View** - Real-time chezmoi status monitoring
+- 📁 **File Browser** - Navigate your source directory with DirectoryTree
+- 📝 **Managed Files Table** - View all managed files in a searchable table
+- 🔍 **Diff Viewer** - Syntax-highlighted diff viewing
+- ✅ **Apply Changes** - Apply changes with confirmation dialog
+- 📋 **Template Data** - Browse template variables in a tree view
+- 🏥 **Doctor Diagnostics** - Run chezmoi doctor for system checks
 
-#### 1\. Core Components
+🎨 **User Experience:**
+- Dark/Light mode toggle
+- Keyboard shortcuts for all actions
+- Background workers for non-blocking operations
+- Smooth screen navigation
+- Rich text formatting and colors
 
-1. **UI Layer (Textual/Rich):** Handles rendering, user input (keybindings), and visualization. Composed of custom widgets (FileStatusList, DiffViewer, StatusBar).
-2. **Application State Manager (Python):** Manages the current view, the list of modified files, and the currently selected item.
-3. **Chezmoi Driver (Python Backend):** A dedicated module responsible for interacting with the `chezmoi` binary. This is the most critical component for performance.
-      * It must use `asyncio.create_subprocess_exec` to run commands asynchronously.
-      * It should prioritize parsing structured output (e.g., `chezmoi status --format json`) for reliability.
-4. **Management Script (`run.sh`):** Handles environment setup, dependency management, and execution.
+## Requirements
 
-#### 2\. Project Structure
+- **Python**: 3.13 or higher
+- **chezmoi**: Installed and configured ([install guide](https://www.chezmoi.io/install/))
+- **uv**: Python package manager ([install guide](https://docs.astral.sh/uv/))
 
-```
-lazymoi/
-│
-├── run.sh                  # Project management script (Setup, Run, Test, Clean)
-├── pyproject.toml          # Python dependencies (Textual) and metadata
-│
-└── src/
-    └── lazymoi/
-        ├── __main__.py     # Application entry point
-        ├── app.py          # Main Textual application class and bindings
-        ├── driver.py       # Backend interaction with the chezmoi binary
-        ├── models.py       # Data models (e.g., ManagedFileStatus)
-        │
-        └── widgets/
-            ├── file_list.py    # Widget for listing file status (Modified/Added/Deleted)
-            ├── diff_viewer.py  # Widget for displaying syntax-highlighted diffs
-            └── modals.py       # Modal screens (e.g., CommitMessage, ConfirmAction)
-```
-
-#### 3\. Data Flow
-
-1. **Startup:** `run.sh` prepares the environment and starts the Textual App (`app.py`).
-2. **Initial Load:** The App initializes the `ChezmoiDriver` and asynchronously calls `driver.get_status()`.
-3. **Render Status:** The results are parsed into models and passed to the `FileList` widget.
-4. **User Interaction:** The user navigates the list.
-5. **Fetch Diff:** The App catches the selection event and asynchronously calls `driver.get_diff(selected_file)`.
-6. **Update UI:** The resulting diff is passed to the `DiffViewer` widget, which uses Rich's `Syntax` class to render the highlighted output.
-7. **Action Execution:** The user presses a key (e.g., 'A' for Apply). The App calls `driver.apply(selected_file)`.
-8. **Refresh:** After the action completes, the App refreshes the status (back to step 2).
-
-### The Management Script (`run.sh`)
-
-This script provides a unified interface for the development lifecycle.
+## Quick Start
 
 ```bash
-#!/bin/bash
+# Clone the repository
+git clone https://github.com/yourusername/chezmoi-manager.git
+cd chezmoi-manager
 
-set -e # Exit immediately if a command exits with a non-zero status.
-
-VENV_DIR=".venv"
-# The entry point for the application execution
-APP_MODULE="src.lazymoi.__main__"
-
-# Function to activate the virtual environment
-activate_venv() {
-    if [ ! -d "$VENV_DIR" ]; then
-        echo "Virtual environment not found. Please run './run.sh setup' first."
-        exit 1
-    fi
-    source "$VENV_DIR/bin/activate"
-}
-
-case "$1" in
-    setup)
-        echo "--- Setting up the development environment ---"
-        if ! command -v python3 &> /dev/null; then
-            echo "Error: python3 is not installed."
-            exit 1
-        fi
-
-        # Create virtual environment
-        [ ! -d "$VENV_DIR" ] && python3 -m venv $VENV_DIR
-        activate_venv
-
-        echo "Installing/Updating Python dependencies..."
-        pip install -U pip
-        # Install dependencies from pyproject.toml (assuming 'dev' extras are defined)
-        pip install ".[dev]"
-        # Install textual-dev for debugging tools
-        pip install textual-dev
-
-        echo "Setup complete. Use './run.sh start' to run the application."
-        ;;
-
-    start)
-        activate_venv
-
-        # Check for external dependency
-        if ! command -v chezmoi &> /dev/null; then
-            echo "Error: chezmoi binary not found in PATH."
-            echo "Please install chezmoi (https://www.chezmoi.io/install/) and try again."
-            exit 1
-        fi
-
-        echo "--- Starting LazyMoi (Development Mode with Hot Reloading) ---"
-        # Use 'textual run --dev' for a better development experience
-        textual run --dev $APP_MODULE
-        ;;
-
-    test)
-        echo "--- Running tests ---"
-        activate_venv
-        pytest
-        ;;
-
-    format)
-        echo "--- Formatting code (Black/isort) ---"
-        activate_venv
-        black src tests
-        isort src
-        ;;
-
-    console)
-        # Useful for debugging Textual layouts using the dev console
-        activate_venv
-        textual console
-        ;;
-
-    clean)
-        echo "--- Cleaning up environment and cache ---"
-        rm -rf $VENV_DIR
-        find . -type d -name "__pycache__" -exec rm -r {} +
-        echo "Clean complete."
-        ;;
-
-    *)
-        echo "Usage: $0 {setup|start|test|format|console|clean}"
-        exit 1
-        ;;
-esac
+# Setup and run
+./project.sh setup
+./project.sh run
 ```
 
-### Development Plan (Phased Approach)
+## Installation
 
-#### Phase 1: Foundation and Core Integration (Est. 3 Days)
+### Using project.sh (Recommended)
 
-1. **Project Setup:** Initialize the repository, create the directory structure, `pyproject.toml`, and implement the `run.sh` script.
-2. **Textual Skeleton:** Create the basic Textual application structure (`app.py`) with a main layout (Header, Footer, Sidebar area, Main Content area).
-3. **Chezmoi Driver (Async):** Implement `driver.py`. Focus on the asynchronous `run_command` function using `asyncio.create_subprocess_exec`.
-4. **Status Parsing:** Implement `driver.get_status()`. Utilize `chezmoi status --format json` (or similar structured output) and parse it into the `ManagedFileStatus` models.
-5. **Basic Display:** Display the parsed status in a `DataTable` or `ListView` widget in the sidebar.
+```bash
+# First-time setup
+./project.sh setup
 
-#### Phase 2: Visualization and Core Actions (Est. 4 Days)
+# Run the application
+./project.sh run
 
-1. **Diff Viewer Widget:** Implement `diff_viewer.py`. When a file is selected in the sidebar, asynchronously fetch the diff.
-2. **Syntax Highlighting:** Utilize Rich's `Syntax` class within the `DiffViewer` to highlight the diff output effectively.
-3. **Keybindings:** Define core keybindings (Quit, Refresh, Apply, Edit).
-4. **Implementing 'Apply':** Implement the workflow for `chezmoi apply <target>`. Use a modal for confirmation if applying all changes.
-5. **Implementing 'Edit':** Implement the workflow for `chezmoi edit <target>`. This requires the TUI to temporarily suspend or manage the execution of the user's external `$EDITOR`.
-6. **State Refresh:** Ensure the UI (file list and diff viewer) automatically refreshes after any action is completed.
+# Other commands
+./project.sh lint    # Lint and format code
+./project.sh build   # Run code quality checks
+./project.sh clean   # Remove cache files
+```
 
-#### Phase 3: Advanced Workflows and Git Integration (Est. 3 Days)
+### Manual Installation
 
-1. **Git Actions:** Implement Git workflows for the source repository.
-2. **Commit Modal:** Create a `CommitMessage` modal screen. Upon submission, the driver should execute `git add .`, `git commit -m <message>`, and `git push` within the chezmoi source directory.
-3. **Update Workflow:** Implement functionality to run `chezmoi update` (pulling from remote and updating externals).
-4. **Data View:** Add a secondary screen to view the output of `chezmoi data` (template variables).
+```bash
+# Install dependencies
+uv sync
 
-#### Phase 4: Polish and Distribution (Est. 2 Days)
+# Run the application
+uv run python main.py
+```
 
-1. **Error Handling:** Robustly handle errors from the `chezmoi` binary (e.g., merge conflicts, missing password manager) and display them clearly using Textual Toasts or Modals.
-2. **Styling:** Use Textual CSS (TCSS) to refine the layout and appearance.
-3. **Help Modal:** Add a modal screen displaying all available keybindings.
-4. **Packaging:** Finalize `pyproject.toml` for distribution via PyPI (allowing installation via `pipx`).
+## Usage
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `s` | Show Status screen |
+| `f` | Show File Browser |
+| `m` | Show Managed Files table |
+| `v` | Show Diff Viewer |
+| `t` | Show Template Data |
+| `c` | Run Doctor diagnostics |
+| `d` | Toggle Dark/Light mode |
+| `q` | Quit application |
+| `Esc` | Go back / Close screen |
+| `Ctrl+P` | Command palette |
+
+### Screens
+
+**Dashboard**
+- Welcome message
+- Quick status overview
+- Navigation buttons
+
+**Status (s)**
+- Detailed chezmoi status output
+- Shows pending changes
+- Refresh with `r`
+
+**File Browser (f)**
+- Navigate source directory
+- View file information
+- See target paths
+
+**Managed Files (m)**
+- Table view of all managed files
+- File count statistics
+- Row selection
+
+**Diff Viewer (v)**
+- Syntax-highlighted diffs
+- Apply changes with confirmation
+- Refresh capability
+
+**Template Data (t)**
+- Browse all template variables
+- Tree structure view
+- Expandable nodes
+
+**Doctor (c)**
+- Run system diagnostics
+- Colorized output
+- Health check status
+
+## Development
+
+### Project Structure
+
+```
+chezmoi-manager/
+├── main.py                 # Application entry point
+├── chezmoi.py             # Chezmoi CLI wrapper
+├── project.sh             # Development automation
+├── app/
+│   ├── screens/           # Screen implementations
+│   │   ├── status.py      # Status screen
+│   │   ├── files.py       # File browser
+│   │   ├── managed.py     # Managed files table
+│   │   ├── diff.py        # Diff viewer
+│   │   ├── data.py        # Template data viewer
+│   │   └── doctor.py      # Diagnostics screen
+│   ├── widgets/           # Custom widgets
+│   │   └── confirm.py     # Confirmation dialog
+│   └── styles/            # CSS styling
+│       └── base.tcss      # Base styles
+├── CLAUDE.md              # AI assistant instructions
+├── CHEZMOI.md             # Chezmoi documentation
+└── TEXTUAL.md             # Textual framework guide
+```
+
+### Technology Stack
+
+- **[Textual](https://textual.textualize.io/)** - Modern TUI framework
+- **[Python 3.13](https://www.python.org/)** - Programming language
+- **[uv](https://docs.astral.sh/uv/)** - Fast Python package manager
+- **[Ruff](https://docs.astral.sh/ruff/)** - Linter and formatter
+- **[tree-sitter](https://tree-sitter.github.io/)** - Syntax highlighting
+
+### Code Quality
+
+```bash
+# Run linter
+uv run ruff check .
+
+# Format code
+uv run ruff format .
+
+# Auto-fix and format
+./project.sh lint
+```
+
+## Contributing
+
+Contributions are welcome! Please follow these guidelines:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run `./project.sh lint` to format code
+5. Run `./project.sh build` to verify quality
+6. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Acknowledgments
+
+- [chezmoi](https://www.chezmoi.io/) - Excellent dotfile manager by Tom Payne
+- [Textual](https://textual.textualize.io/) - Amazing TUI framework by Textualize
+- Built with ❤️ using Python and modern tooling
+
+## Support
+
+- 📖 [Documentation](CHEZMOI.md) - Chezmoi integration guide
+- 📚 [Textual Guide](TEXTUAL.md) - TUI development reference
+- 🐛 [Issues](https://github.com/yourusername/chezmoi-manager/issues) - Report bugs
+- 💬 [Discussions](https://github.com/yourusername/chezmoi-manager/discussions) - Ask questions
