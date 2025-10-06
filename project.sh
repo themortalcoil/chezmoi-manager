@@ -115,6 +115,21 @@ lint() {
     print_success "Linting and formatting complete!"
 }
 
+# Test function
+test() {
+    print_info "Running tests..."
+
+    check_uv
+
+    print_info "Installing test dependencies..."
+    uv sync --group test
+
+    print_info "Running pytest with coverage..."
+    uv run pytest tests/ -v
+
+    print_success "Tests complete!"
+}
+
 # Show help
 show_help() {
     cat << EOF
@@ -126,6 +141,7 @@ Commands:
     setup       Set up the development environment and install dependencies
     build       Run code quality checks (linting and formatting)
     run         Run the Chezmoi Manager application
+    test        Run unit tests with coverage
     clean       Remove build artifacts and cache files
     lint        Run linter with auto-fix and format code
     help        Show this help message
@@ -133,6 +149,7 @@ Commands:
 Examples:
     ./project.sh setup          # First-time setup
     ./project.sh run            # Run the app
+    ./project.sh test           # Run tests
     ./project.sh lint           # Fix code style issues
     ./project.sh clean          # Clean cache files
 
@@ -150,6 +167,9 @@ main() {
             ;;
         run|--run|-r)
             run
+            ;;
+        test|--test|-t)
+            test
             ;;
         clean|--clean|-c)
             clean

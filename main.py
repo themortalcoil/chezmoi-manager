@@ -2,11 +2,12 @@
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Footer, Header, Label, Static
 from textual.worker import Worker, WorkerState
 
+from app.screens.add import AddDotfileScreen
 from app.screens.data import TemplateDataScreen
 from app.screens.diff import DiffViewerScreen
 from app.screens.doctor import DoctorScreen
@@ -122,18 +123,20 @@ class ChezmoiManager(App):
         height: auto;
         align: center middle;
         padding: 1;
-        layout: horizontal;
+        layout: vertical;
     }
 
     Button {
-        margin: 0 1;
-        min-width: 14;
+        margin: 1 0;
+        width: 100%;
+        max-width: 40;
     }
     """
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("d", "toggle_dark", "Toggle Dark Mode"),
+        Binding("a", "show_add", "Add File"),
         Binding("s", "show_status", "Status"),
         Binding("f", "show_files", "Files"),
         Binding("m", "show_managed", "Managed"),
@@ -152,7 +155,8 @@ class ChezmoiManager(App):
         yield WelcomeScreen()
         yield StatusPanel()
 
-        with Horizontal(id="button-container"):
+        with Vertical(id="button-container"):
+            yield Button("Add File (a)", variant="success", id="btn-add")
             yield Button("Status (s)", variant="primary", id="btn-status")
             yield Button("Files (f)", variant="success", id="btn-files")
             yield Button("Managed (m)", variant="success", id="btn-managed")
@@ -174,6 +178,8 @@ class ChezmoiManager(App):
 
         if button_id == "btn-quit":
             self.exit()
+        elif button_id == "btn-add":
+            self.action_show_add()
         elif button_id == "btn-status":
             self.action_show_status()
         elif button_id == "btn-files":
@@ -189,7 +195,13 @@ class ChezmoiManager(App):
 
     def action_toggle_dark(self) -> None:
         """Toggle dark mode."""
-        self.theme = "textual-dark" if self.theme == "textual-light" else "textual-light"
+        self.theme = (
+            "textual-dark" if self.theme == "textual-light" else "textual-light"
+        )
+
+    def action_show_add(self) -> None:
+        """Show the add dotfile screen."""
+        self.push_screen(AddDotfileScreen())
 
     def action_show_status(self) -> None:
         """Show the status screen."""
