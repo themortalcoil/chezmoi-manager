@@ -1,0 +1,39 @@
+[project]
+name = "chezmoi-manager"
+version = "0.1.0"
+description = "A Terminal User Interface (TUI) application for managing chezmoi dotfiles"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [
+    { name = "Scott Williams" }
+]
+license = { text = "MIT" }
+keywords = ["chezmoi", "dotfiles", "tui", "terminal", "configuration"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "textual[syntax]>=6.2.1",
+]
+
+[project.scripts]
+chezmoi-manager = "main:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13.3",
+]
+test = [
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
+    "pytest-asyncio>=0.25.2",
+    "pytest-mock>=3.14.0",
+]
