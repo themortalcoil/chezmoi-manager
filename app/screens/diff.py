@@ -203,13 +203,13 @@ class DiffScreen(BaseScreen):
             self.query_one("#diff_display").update(diff_text)
         
         # Hide error panel
-        self.query_one("#error_panel").add_class("hidden")
+        self.query_one("#error_panel").display = False
     
     def _show_error(self, error: str) -> None:
         """Show an error message."""
         error_panel = self.query_one("#error_panel")
         error_panel.update(f"[red]Error:[/red] {error}\n[dim]Suggestions: Check chezmoi status, ensure chezmoi is initialized[/dim]")
-        error_panel.remove_class("hidden")
+        error_panel.display = True
         self.query_one("#diff_display").update("")
     
     @on(ListView.Selected)
