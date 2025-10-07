@@ -189,7 +189,7 @@ class AddDotfileScreen(BaseScreen):
         """Apply executable preset."""
         options = self.query_one("#options_panel", OptionsPanel)
         options.reset()
-        self.query_one("#executable_check").value = True
+        options.query_one("#executable_check").value = True
         self._update_preview()
     
     @on(Button.Pressed, "#preset_readonly")
