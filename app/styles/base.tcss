@@ -1,0 +1,92 @@
+/* Base styles for Chezmoi Manager */
+
+/* Global screen styles */
+Screen {
+    background: $surface;
+}
+
+/* Header and Footer */
+Header {
+    background: $primary;
+    color: $text;
+}
+
+Footer {
+    background: $panel;
+}
+
+/* Common container styles */
+Container {
+    background: transparent;
+}
+
+/* Button styles */
+Button {
+    min-width: 16;
+    height: 3;
+}
+
+Button:hover {
+    border: solid $accent;
+}
+
+Button.-primary {
+    background: $primary;
+}
+
+Button.-primary:hover {
+    background: $primary-darken-1;
+}
+
+Button.-success {
+    background: $success;
+}
+
+Button.-success:hover {
+    background: $success-darken-1;
+}
+
+Button.-error {
+    background: $error;
+}
+
+Button.-error:hover {
+    background: $error-darken-1;
+}
+
+/* Panel styles */
+.panel {
+    background: $panel;
+    border: solid $primary;
+    padding: 2;
+}
+
+/* Text styles */
+.bold {
+    text-style: bold;
+}
+
+.dim {
+    color: $text-muted;
+}
+
+.center {
+    text-align: center;
+}
+
+/* Status colors */
+.success {
+    color: $success;
+}
+
+.error {
+    color: $error;
+}
+
+.warning {
+    color: $warning;
+}
+
+.info {
+    color: $accent;
+}
