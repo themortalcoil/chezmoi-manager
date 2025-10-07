@@ -181,7 +181,7 @@ class AddDotfileScreen(BaseScreen):
         """Apply template preset."""
         options = self.query_one("#options_panel", OptionsPanel)
         options.reset()
-        self.query_one("#template_check").value = True
+        options.query_one("#template_check").value = True
         self._update_preview()
     
     @on(Button.Pressed, "#preset_executable")
