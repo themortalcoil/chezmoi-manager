@@ -202,9 +202,8 @@ class ChezmoiWrapper:
                     if expanded_path == managed_expanded:
                         return True
                 except Exception:
-                    # Fallback to string comparison
-                    if path in managed or managed in path:
-                        return True
+                    # If normalization fails, skip this managed file
+                    continue
             
             return False
         except ChezmoiCommandError:
