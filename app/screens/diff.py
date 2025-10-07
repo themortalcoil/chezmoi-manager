@@ -1,615 +1,280 @@
-"""Diff viewer screen for viewing changes."""
+"""Screen for viewing and applying diffs."""
 
 import re
+from datetime import datetime
 from pathlib import Path
+from textual.widgets import Button, Label, Static, ListView, ListItem
+from textual.containers import Container, Vertical, Horizontal, VerticalScroll
+from textual import on
+from rich.syntax import Syntax
 
-from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import Screen
-from textual.widgets import (
-    Button,
-    Footer,
-    Header,
-    Label,
-    ListView,
-    ListItem,
-    Static,
-    TextArea,
-)
-from textual.worker import Worker, WorkerState
-
-from app.widgets.confirm import ConfirmDialog
-from chezmoi import ChezmoiWrapper, ChezmoiCommandError
+from ..base_screen import BaseScreen
+from ..chezmoi_wrapper import ChezmoiWrapper, ChezmoiCommandError
+from ..constants import BUTTON_APPLY, BUTTON_REFRESH, BUTTON_EXPORT
 
 
-class DiffStatsPanel(Static):
+class StatisticsPanel(Static):
     """Panel showing diff statistics."""
-
-    def compose(self) -> ComposeResult:
-        """Create child widgets."""
-        yield Label("[bold]Statistics[/bold]", id="stats-title")
-        yield Label("", id="stats-content")
-
-    def update_stats(self, diff: str) -> None:
-        """Update statistics from diff content.
-
-        Args:
-            diff: The diff content to analyze.
-        """
-        if not diff.strip():
-            self.query_one("#stats-content", Label).update(
-                "[dim]No changes to analyze[/dim]"
-            )
-            return
-
-        # Parse diff for statistics
-        lines = diff.split("\n")
-        files_changed = set()
-        additions = 0
-        deletions = 0
-
-        for line in lines:
-            # Count file changes (lines starting with diff or ---)
-            if line.startswith("diff --git"):
-                # Extract filename from diff --git a/file b/file
-                match = re.search(r"diff --git a/(.*?) b/", line)
-                if match:
-                    files_changed.add(match.group(1))
-            elif line.startswith("+") and not line.startswith("+++"):
-                additions += 1
-            elif line.startswith("-") and not line.startswith("---"):
-                deletions += 1
-
-        stats_lines = [
-            f"[cyan]Files changed:[/cyan] {len(files_changed)}",
-            f"[green]Lines added:[/green] +{additions}",
-            f"[red]Lines deleted:[/red] -{deletions}",
-            f"[yellow]Net change:[/yellow] {additions - deletions:+d}",
-        ]
-
-        self.query_one("#stats-content", Label).update("\n".join(stats_lines))
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.border_title = "Statistics"
+    
+    def update_stats(self, files: int, additions: int, deletions: int) -> None:
+        """Update statistics display."""
+        net_change = additions - deletions
+        net_symbol = "+" if net_change >= 0 else ""
+        
+        content = (
+            f"[bold]Files changed:[/bold] {files}\n"
+            f"[green]+{additions} additions[/green]\n"
+            f"[red]-{deletions} deletions[/red]\n"
+            f"[bold]Net change:[/bold] {net_symbol}{net_change}"
+        )
+        self.update(content)
 
 
-class FileListPanel(Static):
-    """Panel for selecting specific files to view diff."""
-
-    def compose(self) -> ComposeResult:
-        """Create child widgets."""
-        yield Label("[bold]Changed Files[/bold]", id="file-list-title")
-        yield Label("[dim]Loading files...[/dim]", id="file-list-loading")
-        with VerticalScroll(id="file-list-scroll"):
-            yield ListView(id="file-list")
-
+class FileListPanel(ListView):
+    """Panel showing changed files."""
+    
     def update_files(self, files: list[str]) -> None:
-        """Update file list.
-
-        Args:
-            files: List of changed files.
-        """
-        loading = self.query_one("#file-list-loading", Label)
-        loading.display = False
-
-        list_view = self.query_one("#file-list", ListView)
-        list_view.clear()
-
-        if not files:
-            list_view.display = False
-            loading.update("[dim]No changed files[/dim]")
-            loading.display = True
-            return
-
-        list_view.display = True
-        for file in files:
-            item = ListItem(Label(file))
-            item.file_path = file
-            list_view.append(item)
+        """Update the file list."""
+        self.clear()
+        for file_path in files:
+            item = ListItem(Label(file_path))
+            item.file_path = file_path
+            self.append(item)
 
 
-class DiffViewerScreen(Screen):
-    """Screen for viewing diffs."""
-
+class DiffScreen(BaseScreen):
+    """Screen for viewing chezmoi diffs with enhanced features."""
+    
     CSS = """
-    DiffViewerScreen {
-        align: center top;
+    DiffScreen {
         layout: horizontal;
     }
-
+    
     #sidebar {
         width: 30;
-        height: 1fr;
-        background: $panel;
-        border: solid $primary;
+        border-right: solid $primary;
         padding: 1;
-        margin: 1;
-        dock: left;
     }
-
-    DiffStatsPanel {
-        width: 100%;
-        height: auto;
-        padding: 1;
-        margin-bottom: 1;
-        border: solid $accent;
-    }
-
-    FileListPanel {
-        width: 100%;
-        height: 1fr;
-        padding: 1;
-        border: solid $success;
-    }
-
-    #file-list-scroll {
-        height: 1fr;
-        border: none;
-    }
-
-    #file-list {
-        height: auto;
-    }
-
-    #main-content {
+    
+    #main_content {
         width: 1fr;
+        padding: 1;
+    }
+    
+    StatisticsPanel {
+        border: solid $accent;
+        padding: 1;
+        height: auto;
+        margin-bottom: 1;
+    }
+    
+    FileListPanel {
+        border: solid $accent;
         height: 1fr;
-        background: $panel;
-        border: solid $primary;
-        padding: 1 2;
-        margin: 1;
     }
-
-    #diff-title {
-        padding: 1 0;
-        text-style: bold;
+    
+    #diff_container {
+        border: solid $accent;
+        height: 1fr;
+        padding: 1;
     }
-
-    #error-panel {
-        padding: 2;
-        background: $error 20%;
-        border: solid $error;
+    
+    #error_panel {
+        border: solid red;
+        padding: 1;
+        height: auto;
+        background: $error;
         margin: 1 0;
     }
-
-    TextArea {
-        height: 1fr;
-        border: solid $accent;
-        margin-top: 1;
-    }
-
-    #actions-container {
-        dock: bottom;
+    
+    .button-row {
+        layout: horizontal;
         height: auto;
-        width: 100%;
-        padding: 1 2;
-        align: center middle;
-        background: $surface;
+        margin: 1 0;
     }
-
-    Button {
+    
+    .button-row Button {
         margin: 0 1;
     }
-
-    .loading {
-        text-align: center;
-        padding: 2;
-    }
     """
-
+    
     BINDINGS = [
+        ("n", "next_change", "Next"),
+        ("p", "prev_change", "Previous"),
         ("escape", "pop_screen", "Back"),
-        ("r", "refresh", "Refresh"),
-        ("a", "apply", "Apply Changes"),
-        ("e", "export", "Export Diff"),
-        ("n", "next_change", "Next Change"),
-        ("p", "prev_change", "Prev Change"),
-        ("q", "app.quit", "Quit"),
     ]
-
-    def __init__(self, target: str = "") -> None:
-        """Initialize the diff viewer.
-
-        Args:
-            target: Specific file to show diff for (empty for all files).
-        """
-        super().__init__()
-        self.target = target
-        self.changed_files: list[str] = []
+    
+    def __init__(self, chezmoi: ChezmoiWrapper, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.chezmoi = chezmoi
         self.current_diff = ""
-        self.has_error = False
-
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the screen."""
-        yield Header()
-
-        # Sidebar with stats and file list
+        self.changed_files = []
+        self.selected_file = None
+    
+    def compose(self):
+        """Compose the screen."""
         with Vertical(id="sidebar"):
-            yield DiffStatsPanel()
-            yield FileListPanel()
-
-        # Main content area
-        with Vertical(id="main-content"):
-            title = f"Diff: {self.target}" if self.target else "Diff: All Files"
-            yield Static(f"[bold]{title}[/bold]", id="diff-title")
-            yield Static("[dim]Loading diff...[/dim]", classes="loading", id="loading")
-            yield Static("", id="error-panel")  # Hidden by default
-            yield TextArea(
-                "",
-                language="diff",
-                theme="monokai",
-                read_only=True,
-                show_line_numbers=True,
-                id="diff-area",
-            )
-
-        # Action buttons at bottom
-        with Horizontal(id="actions-container"):
-            yield Button("🔄 Refresh (r)", variant="primary", id="btn-refresh")
-            yield Button("✓ Apply (a)", variant="success", id="btn-apply")
-            yield Button("💾 Export (e)", variant="default", id="btn-export")
-            yield Button("← Back (esc)", variant="default", id="btn-back")
-
-        yield Footer()
-
+            yield StatisticsPanel(id="stats_panel")
+            yield Label("Changed Files")
+            yield FileListPanel(id="file_list")
+        
+        with Vertical(id="main_content"):
+            yield Label("Diff: All Files", id="diff_title")
+            yield Static(id="error_panel", classes="hidden")
+            with VerticalScroll(id="diff_container"):
+                yield Static(id="diff_display")
+            
+            with Horizontal(classes="button-row"):
+                yield Button("🔄 Refresh", id=BUTTON_REFRESH)
+                yield Button("✓ Apply All", variant="primary", id=BUTTON_APPLY)
+                yield Button("💾 Export", id=BUTTON_EXPORT)
+    
     def on_mount(self) -> None:
-        """Set up the screen."""
-        self.title = "Diff Viewer"
-        self.sub_title = (
-            "Press 'a' to apply, 'r' to refresh, 'e' to export, 'esc' to go back"
-        )
-
-        # Hide panels initially
-        text_area = self.query_one("#diff-area", TextArea)
-        text_area.display = False
-
-        error_panel = self.query_one("#error-panel", Static)
-        error_panel.display = False
-
-        # Load diff
-        self.load_diff()
-
-    def show_error(self, error_msg: str, details: str = "") -> None:
-        """Show error message in error panel.
-
-        Args:
-            error_msg: Main error message.
-            details: Optional detailed error information.
-        """
-        self.has_error = True
-        error_panel = self.query_one("#error-panel", Static)
-
-        error_text = f"[red bold]✗ Error:[/red bold] {error_msg}"
-        if details:
-            error_text += f"\n\n[dim]{details}[/dim]"
-
-        error_text += "\n\n[yellow]💡 Suggestions:[/yellow]"
-        error_text += "\n• Check that chezmoi is properly configured"
-        error_text += "\n• Run 'chezmoi doctor' to diagnose issues"
-        error_text += "\n• Press 'r' to retry loading the diff"
-
-        error_panel.update(error_text)
-        error_panel.display = True
-
-    def hide_error(self) -> None:
-        """Hide error panel."""
-        self.has_error = False
-        error_panel = self.query_one("#error-panel", Static)
-        error_panel.display = False
-
-    def load_diff(self) -> None:
-        """Load diff in background worker."""
-        self.hide_error()
-        self.run_worker(self._fetch_diff, exclusive=True, thread=True)
-
-    async def _fetch_diff(self) -> tuple[bool, str, str]:
-        """Fetch diff from chezmoi.
-
-        Returns:
-            tuple[bool, str, str]: (success, diff_content, error_message)
-        """
+        """Handle mount event."""
+        self._load_diff()
+    
+    def _load_diff(self, file_path: str | None = None) -> None:
+        """Load diff."""
         try:
-            diff_content = ChezmoiWrapper.get_diff(self.target)
-            return (True, diff_content, "")
+            diff_output = self.chezmoi.diff(file_path)
+            self._update_display(diff_output, file_path)
         except ChezmoiCommandError as e:
-            error_msg = "Failed to get diff from chezmoi"
-            details = f"{str(e)}\n\nStderr: {e.stderr}" if e.stderr else str(e)
-            return (False, "", f"{error_msg}\n\n{details}")
-        except Exception as e:
-            return (False, "", f"Unexpected error: {type(e).__name__}: {str(e)}")
-
-    def update_diff(self, success: bool, diff: str, error: str) -> None:
-        """Update diff display.
-
-        Args:
-            success: Whether the diff fetch was successful.
-            diff: The diff content.
-            error: Error message if not successful.
-        """
-        # Hide loading message
-        loading = self.query_one("#loading", Static)
-        loading.display = False
-
-        if not success:
-            self.show_error("Failed to load diff", error)
-            text_area = self.query_one("#diff-area", TextArea)
-            text_area.display = False
-            return
-
-        # Hide error panel if previously shown
-        self.hide_error()
-
-        # Show and update TextArea
-        text_area = self.query_one("#diff-area", TextArea)
-        text_area.display = True
-
-        if diff.strip():
-            self.current_diff = diff
-            text_area.text = diff
-
-            # Update stats panel
-            stats_panel = self.query_one(DiffStatsPanel)
-            stats_panel.update_stats(diff)
-
-            # Extract and update file list
-            self.changed_files = self._extract_changed_files(diff)
-            file_list_panel = self.query_one(FileListPanel)
-            file_list_panel.update_files(self.changed_files)
-
-            self.app.notify(
-                f"Loaded diff with {len(self.changed_files)} changed file(s)",
-                severity="information",
-            )
-        else:
-            self.current_diff = ""
-            text_area.text = (
-                "✓ No changes detected.\n\n"
-                "All files are in sync with the target state.\n\n"
-                "[dim]Your dotfiles are up to date![/dim]"
-            )
-            stats_panel = self.query_one(DiffStatsPanel)
-            stats_panel.update_stats("")
-
-            file_list_panel = self.query_one(FileListPanel)
-            file_list_panel.update_files([])
-
-            self.app.notify("No changes detected", severity="information")
-
-    def _extract_changed_files(self, diff: str) -> list[str]:
-        """Extract list of changed files from diff.
-
-        Args:
-            diff: The diff content.
-
+            self._show_error(str(e))
+    
+    def _parse_diff(self, diff_text: str) -> tuple[list[str], int, int]:
+        """Parse diff to extract files and statistics.
+        
         Returns:
-            List of file paths that have changes.
+            Tuple of (files, additions, deletions)
         """
         files = []
-        for line in diff.split("\n"):
-            if line.startswith("diff --git"):
-                match = re.search(r"diff --git a/(.*?) b/", line)
-                if match:
-                    files.append(match.group(1))
-        return files
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        button_id = event.button.id
-
-        if button_id == "btn-back":
-            self.app.pop_screen()
-        elif button_id == "btn-refresh":
-            self.action_refresh()
-        elif button_id == "btn-apply":
-            self.action_apply()
-        elif button_id == "btn-export":
-            self.action_export()
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle file selection from list."""
-        if event.item and hasattr(event.item, "file_path"):
-            file_path = event.item.file_path
-            # Reload diff with specific file
-            self.target = file_path
-            title = self.query_one("#diff-title", Static)
-            title.update(f"[bold]Diff: {file_path}[/bold]")
-            self.load_diff()
-
-            self.app.notify(
-                f"Showing diff for: {file_path}",
-                severity="information",
-            )
-
-    def action_refresh(self) -> None:
-        """Refresh the diff display."""
-        # Show loading
-        loading = self.query_one("#loading", Static)
-        loading.display = True
-
-        text_area = self.query_one("#diff-area", TextArea)
-        text_area.display = False
-
-        # Reset target to show all files
-        if self.target:
-            self.target = ""
-            title = self.query_one("#diff-title", Static)
-            title.update("[bold]Diff: All Files[/bold]")
-
-        self.load_diff()
-        self.app.notify("Refreshing diff...", timeout=1)
-
-    def action_export(self) -> None:
-        """Export diff to file."""
-        if not self.current_diff:
-            self.app.notify("No diff to export", severity="warning")
+        additions = 0
+        deletions = 0
+        
+        # Extract files from diff headers
+        for match in re.finditer(r'^diff --git a/(.*?) b/.*?$', diff_text, re.MULTILINE):
+            files.append(match.group(1))
+        
+        # Count additions and deletions
+        for line in diff_text.splitlines():
+            if line.startswith('+') and not line.startswith('+++'):
+                additions += 1
+            elif line.startswith('-') and not line.startswith('---'):
+                deletions += 1
+        
+        return files, additions, deletions
+    
+    def _update_display(self, diff_text: str, file_path: str | None = None) -> None:
+        """Update the diff display."""
+        self.current_diff = diff_text
+        
+        if not diff_text or not diff_text.strip():
+            self.query_one("#diff_display").update("[dim]No changes to display[/dim]")
+            self.query_one("#stats_panel", StatisticsPanel).update_stats(0, 0, 0)
+            self.query_one("#file_list", FileListPanel).update_files([])
             return
-
-        try:
-            from datetime import datetime
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"chezmoi_diff_{timestamp}.patch"
-            filepath = Path.home() / filename
-
-            with open(filepath, "w") as f:
-                f.write(self.current_diff)
-
-            self.app.notify(
-                f"✓ Diff exported to: {filepath}",
-                title="Export Successful",
-                severity="information",
-                timeout=5,
-            )
-        except Exception as e:
-            self.app.notify(
-                f"Failed to export diff: {e}",
-                title="Export Failed",
-                severity="error",
-                timeout=5,
-            )
-
-    def action_next_change(self) -> None:
-        """Jump to next change in diff."""
-        text_area = self.query_one("#diff-area", TextArea)
-        if not text_area.display:
-            return
-
-        # Find next line starting with + or -
-        current_line = text_area.cursor_location[0]
-        lines = text_area.text.split("\n")
-
-        for i in range(current_line + 1, len(lines)):
-            if lines[i].startswith("+") or lines[i].startswith("-"):
-                text_area.cursor_location = (i, 0)
-                self.app.notify(f"Line {i + 1}", timeout=1)
-                return
-
-        self.app.notify("No more changes", severity="information", timeout=1)
-
-    def action_prev_change(self) -> None:
-        """Jump to previous change in diff."""
-        text_area = self.query_one("#diff-area", TextArea)
-        if not text_area.display:
-            return
-
-        # Find previous line starting with + or -
-        current_line = text_area.cursor_location[0]
-        lines = text_area.text.split("\n")
-
-        for i in range(current_line - 1, -1, -1):
-            if lines[i].startswith("+") or lines[i].startswith("-"):
-                text_area.cursor_location = (i, 0)
-                self.app.notify(f"Line {i + 1}", timeout=1)
-                return
-
-        self.app.notify("No more changes", severity="information", timeout=1)
-
-    def action_apply(self) -> None:
-        """Apply changes (with confirmation)."""
-        if self.has_error:
-            self.app.notify(
-                "Cannot apply changes while there's an error", severity="warning"
-            )
-            return
-
-        # Check if there are changes to apply
-        if not self.current_diff:
-            self.app.notify("No changes to apply", severity="information")
-            return
-
-        # Build confirmation message
-        num_files = len(self.changed_files)
-        if self.target:
-            message = f"This will apply changes to:\n  {self.target}\n\nAre you sure?"
-        else:
-            message = (
-                f"This will apply changes to {num_files} file(s):\n"
-                f"{chr(10).join('  • ' + f for f in self.changed_files[:5])}"
-            )
-            if num_files > 5:
-                message += f"\n  ... and {num_files - 5} more"
-            message += "\n\nAre you sure you want to continue?"
-
-        # Show confirmation dialog
-        self.app.push_screen(
-            ConfirmDialog(
-                title="Apply Changes?",
-                message=message,
-                confirm_text="Apply",
-                cancel_text="Cancel",
-            ),
-            self.handle_apply_confirm,
+        
+        # Parse diff
+        files, additions, deletions = self._parse_diff(diff_text)
+        self.changed_files = files
+        
+        # Update statistics
+        self.query_one("#stats_panel", StatisticsPanel).update_stats(
+            len(files), additions, deletions
         )
-
-    def handle_apply_confirm(self, confirmed: bool) -> None:
-        """Handle apply confirmation result."""
-        if confirmed:
-            self.run_worker(self._apply_changes, exclusive=True, thread=True)
-            self.app.notify("Applying changes...", timeout=2)
-        else:
-            self.app.notify("Apply cancelled", severity="information")
-
-    async def _apply_changes(self) -> tuple[bool, str, str]:
-        """Apply changes using chezmoi.
-
-        Returns:
-            tuple[bool, str, str]: (success, result, error_message)
-        """
+        
+        # Update file list
+        self.query_one("#file_list", FileListPanel).update_files(files)
+        
+        # Update title
+        title = f"Diff: {file_path}" if file_path else "Diff: All Files"
+        self.query_one("#diff_title").update(title)
+        
+        # Render diff with syntax highlighting
         try:
-            targets = [self.target] if self.target else None
-            result = ChezmoiWrapper.apply(targets=targets, dry_run=False, verbose=True)
-            return (True, result, "")
+            syntax = Syntax(diff_text, "diff", theme="monokai", line_numbers=True)
+            self.query_one("#diff_display").update(syntax)
+        except Exception:
+            # Fallback to plain text
+            self.query_one("#diff_display").update(diff_text)
+        
+        # Hide error panel
+        self.query_one("#error_panel").display = False
+    
+    def _show_error(self, error: str) -> None:
+        """Show an error message."""
+        error_panel = self.query_one("#error_panel")
+        error_panel.update(f"[red]Error:[/red] {error}\n[dim]Suggestions: Check chezmoi status, ensure chezmoi is initialized[/dim]")
+        error_panel.display = True
+        self.query_one("#diff_display").update("")
+    
+    @on(ListView.Selected)
+    def on_file_selected(self, event: ListView.Selected) -> None:
+        """Handle file selection from list."""
+        if event.item and hasattr(event.item, 'file_path'):
+            self.selected_file = event.item.file_path
+            self._load_diff(self.selected_file)
+    
+    @on(Button.Pressed, f"#{BUTTON_REFRESH}")
+    def on_refresh(self) -> None:
+        """Handle refresh button."""
+        self.selected_file = None
+        self._load_diff()
+    
+    @on(Button.Pressed, f"#{BUTTON_APPLY}")
+    def on_apply(self) -> None:
+        """Handle apply button."""
+        self._apply_changes(self.selected_file)
+    
+    def _apply_changes(self, file_path: str | None = None) -> None:
+        """Apply changes."""
+        try:
+            self.chezmoi.apply(file_path)
+            self._handle_apply_complete(True, file_path)
         except ChezmoiCommandError as e:
-            error_msg = f"{str(e)}\n\nStderr: {e.stderr}" if e.stderr else str(e)
-            return (False, "", error_msg)
+            self._handle_apply_complete(False, file_path, str(e))
+    
+    def _handle_apply_complete(self, success: bool, file_path: str | None = None, error: str = "") -> None:
+        """Handle apply completion."""
+        error_panel = self.query_one("#error_panel")
+        
+        if success:
+            target = file_path or "all files"
+            error_panel.update(f"[green]✓ Successfully applied changes to {target}[/green]")
+            error_panel.remove_class("hidden")
+            # Reload diff
+            self._load_diff()
+        else:
+            self._show_error(f"Failed to apply: {error}")
+    
+    @on(Button.Pressed, f"#{BUTTON_EXPORT}")
+    def on_export(self) -> None:
+        """Handle export button."""
+        if not self.current_diff:
+            return
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"/tmp/chezmoi_diff_{timestamp}.patch"
+        
+        try:
+            Path(filename).write_text(self.current_diff)
+            error_panel = self.query_one("#error_panel")
+            error_panel.update(f"[green]✓ Exported to {filename}[/green]")
+            error_panel.remove_class("hidden")
         except Exception as e:
-            return (False, "", f"Unexpected error: {type(e).__name__}: {str(e)}")
+            self._show_error(f"Failed to export: {e}")
+    
+    def action_next_change(self) -> None:
+        """Jump to next change."""
+        # This would require more complex diff parsing
+        pass
+    
+    def action_prev_change(self) -> None:
+        """Jump to previous change."""
+        # This would require more complex diff parsing
+        pass
 
-    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        """Handle worker completion."""
-        if event.state == WorkerState.SUCCESS:
-            if hasattr(event.worker, "result") and event.worker.result is not None:
-                result = event.worker.result
-
-                # Check which worker completed by the result type
-                if isinstance(result, tuple):
-                    if len(result) == 3:
-                        # Could be diff worker or apply worker
-                        success, content, error = result
-
-                        if success and not error and content:
-                            # This is likely a diff load
-                            self.update_diff(True, content, "")
-                        elif success and not content:
-                            # This is likely an apply success
-                            self.app.notify(
-                                "✓ Changes applied successfully!",
-                                title="Apply Complete",
-                                severity="information",
-                                timeout=3,
-                            )
-                            # Refresh the diff to show updated state
-                            self.action_refresh()
-                        else:
-                            # This is an error from either worker
-                            if "apply" in error.lower():
-                                self.app.notify(
-                                    f"Apply failed: {error}",
-                                    title="Apply Error",
-                                    severity="error",
-                                    timeout=5,
-                                )
-                            else:
-                                self.update_diff(False, "", error)
-
-        elif event.state == WorkerState.ERROR:
-            error_msg = (
-                str(event.worker.error) if event.worker.error else "Unknown error"
-            )
-            self.show_error("Worker failed", error_msg)
-            self.app.notify(
-                "An error occurred",
-                severity="error",
-                timeout=3,
-            )
-
-    def action_pop_screen(self) -> None:
-        """Go back to previous screen."""
-        self.app.pop_screen()

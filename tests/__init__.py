@@ -1,1 +1,1 @@
-"""Unit tests for chezmoi-manager."""
+"""Test configuration and fixtures."""
